@@ -135,9 +135,6 @@ def main():
         print("  sudo apt install libcamera-apps")
         return
     
-    # Check if display is available
-    display_available = os.environ.get('DISPLAY') is not None
-    
     # Keypoint names for reference
     keypoint_names = [
         'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear',
@@ -146,15 +143,8 @@ def main():
         'left_knee', 'right_knee', 'left_ankle', 'right_ankle'
     ]
     
-    if not display_available:
-        print("\nNo display detected. Running in headless mode.")
-        print("Frames will be saved to 'output/' directory")
-        print("Saving every 10th frame with annotations")
-        print("Press Ctrl+C to stop\n")
-        os.makedirs("output", exist_ok=True)
-    else:
-        print("\nStarting pose estimation...")
-        print("Press 'q' to quit, 's' to save screenshot\n")
+    print("\nStarting pose estimation with live display...")
+    print("Press 'q' to quit, 's' to save screenshot\n")
     
     frame_count = 0
     start_time = time.time()
@@ -182,42 +172,30 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             cv2.putText(frame, f"Frame: {frame_count}", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(frame, "Press 'q' to quit, 's' to save", (10, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             
-            if display_available:
-                cv2.putText(frame, "Press 'q' to quit, 's' to save", (10, 90),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            # Display the frame with live annotations
+            cv2.imshow('MoveNet Pose Estimation', frame)
+            
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('s'):
+                filename = f"pose_screenshot_{int(time.time())}.jpg"
+                cv2.imwrite(filename, frame)
+                print(f"Screenshot saved: {filename}")
                 
-                cv2.imshow('MoveNet Pose Estimation', frame)
-                
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('s'):
-                    filename = f"pose_screenshot_{int(time.time())}.jpg"
-                    cv2.imwrite(filename, frame)
-                    print(f"Screenshot saved: {filename}")
-            else:
-                # Headless mode: save every 10th frame
-                if frame_count % 10 == 0:
-                    filename = f"output/frame_{frame_count:06d}.jpg"
-                    cv2.imwrite(filename, frame)
-                    
-                    print(f"\n{'='*60}")
-                    print(f"Frame {frame_count} saved: {filename}")
-                    print(f"FPS: {fps:.1f}")
-                    print(f"{'='*60}")
-                    print(f"Keypoint coordinates (format: y, x, confidence):\n")
-                    
-                    for i, (y, x, conf) in enumerate(keypoints):
-                        print(f"{i:2d}. {keypoint_names[i]:15s}: y={y:.3f}, x={x:.3f}, conf={conf:.3f}")
-                    
-                    print(f"{'='*60}\n")
+                # Print keypoints when saving
+                print(f"\nKeypoint coordinates:")
+                for i, (y, x, conf) in enumerate(keypoints):
+                    print(f"{i:2d}. {keypoint_names[i]:15s}: y={y:.3f}, x={x:.3f}, conf={conf:.3f}")
+                print()
                 
     except KeyboardInterrupt:
         print("\nInterrupted by user")
     finally:
-        if display_available:
-            cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
         print(f"\nDone! Average FPS: {fps:.1f}")
         print(f"Total frames processed: {frame_count}")
 
