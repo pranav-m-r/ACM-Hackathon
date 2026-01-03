@@ -5,15 +5,16 @@ Displays live camera feed with pose estimation annotations
 
 import cv2
 import numpy as np
-from picamera2 import Picamera2
 import tflite_runtime.interpreter as tflite
 
 # Try to import picamera2 for modern RPi camera support
-# try:
-PICAMERA2_AVAILABLE = True
-# except ImportError:
-#     PICAMERA2_AVAILABLE = False
-#     print("picamera2 not available, will use OpenCV for camera access")
+try:
+    from picamera2 import Picamera2
+    PICAMERA2_AVAILABLE = True
+except ImportError as e:
+    PICAMERA2_AVAILABLE = False
+    print(f"picamera2 not available: {e}")
+    print("Will use OpenCV for camera access")
 
 # MoveNet keypoint indices
 KEYPOINT_DICT = {
