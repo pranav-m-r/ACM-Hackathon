@@ -6,16 +6,9 @@ Displays live camera feed with pose estimation annotations
 import cv2
 import numpy as np
 import tflite_runtime.interpreter as tflite
+import subprocess
+import os
 import time
-
-# Try to import picamzero for RPi camera support
-try:
-    from picamzero import Camera
-    PICAMZERO_AVAILABLE = True
-except ImportError as e:
-    PICAMZERO_AVAILABLE = False
-    print(f"picamzero not available: {e}")
-    print("Will use OpenCV for camera access")
 
 
 def load_model(model_path):
@@ -23,6 +16,44 @@ def load_model(model_path):
     interpreter = tflite.Interpreter(model_path=model_path)
     interpreter.allocate_tensors()
     return interpreter
+
+
+def capture_frame_rpicam():
+    """Capture a frame using rpicam-jpeg command."""
+    temp_file = "/tmp/camera_frame.jpg"
+    
+    try:
+        # Use rpicam-jpeg to capture a single frame quickly
+        # -t 1 = timeout 1ms (capture immediately)
+        # -o = output file
+        # --width/--height = resolution
+        # -n = no preview window
+        subprocess.run([
+            "rpicam-jpeg",
+            "-t", "1",
+            "-o", temp_file,
+            "--width", "640",
+            "--height", "480",
+            "-n"
+        ], check=True, capture_output=True, timeout=2)
+        
+        # Read the captured image
+        frame = cv2.imread(temp_file)
+        
+        # Clean up temp file
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        
+        return frame
+    except subprocess.TimeoutExpired:
+        print("Warning: Camera capture timed out")
+        return None
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: rpicam-jpeg failed: {e}")
+        return None
+    except Exception as e:
+        print(f"Warning: Error capturing frame: {e}")
+        return None
 
 
 def preprocess_frame(frame, input_size):
@@ -127,62 +158,32 @@ def main():
     input_size = input_shape[1]
     print(f"Model input size: {input_size}x{input_size}")
     
-    # Initialize camera
-    print("Initializing camera...")
-    use_picamzero = False
-    cap = None
-    cam = None
+    # Check if rpicam-jpeg is available
+    print("Checking for rpicam-jpeg...")
+    try:
+        subprocess.run(["which", "rpicam-jpeg"], check=True, capture_output=True)
+        print("rpicam-jpeg found!")
+    except subprocess.CalledProcessError:
+        print("Error: rpicam-jpeg not found. Please install with:")
+        print("  sudo apt install libcamera-apps")
+        return
     
-    # Try picamzero first
-    if PICAMZERO_AVAILABLE:
-        try:
-            print("Attempting to initialize with picamzero...")
-            cam = Camera()
-            use_picamzero = True
-            print("Successfully initialized camera with picamzero")
-        except Exception as e:
-            print(f"Failed to initialize picamzero: {e}")
-            cam = None
+    print("\nStarting pose estimation...")
+    print("Press 'q' to quit, 's' to save screenshot")
+    print("Note: Frame rate may be lower when using rpicam-jpeg\n")
     
-    # Fall back to OpenCV if picamzero didn't work
-    if not use_picamzero:
-        print("Trying OpenCV camera access...")
-        cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-        
-        if not cap.isOpened():
-            for cam_index in [0, 1, 2]:
-                print(f"Trying camera index {cam_index}...")
-                cap = cv2.VideoCapture(cam_index)
-                if cap.isOpened():
-                    print(f"Successfully opened camera at index {cam_index}")
-                    break
-                cap.release()
-        
-        if not cap.isOpened():
-            print("Error: Could not open camera with any method.")
-            return
-        
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    
-    print("Starting pose estimation... Press 'q' to quit.")
-    time.sleep(0.5)
+    frame_count = 0
+    start_time = time.time()
     
     try:
         while True:
-            # Capture frame
-            if use_picamzero:
-                # picamzero captures as numpy array
-                frame = cam.capture_array()
-                # Convert RGB to BGR for OpenCV
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            else:
-                ret, frame = cap.read()
-                if not ret:
-                    print("Warning: Failed to capture frame")
-                    time.sleep(0.1)
-                    continue
+            # Capture frame using rpicam
+            frame = capture_frame_rpicam()
+            
+            if frame is None:
+                print("Failed to capture frame, retrying...")
+                time.sleep(0.1)
+                continue
             
             # Preprocess frame
             input_image = preprocess_frame(frame, input_size)
@@ -194,27 +195,34 @@ def main():
             frame = draw_skeleton(frame, keypoints)
             frame = draw_keypoints(frame, keypoints)
             
-            # Add instructions
-            cv2.putText(frame, "Press 'q' to quit", (10, 30),
+            # Calculate and display FPS
+            frame_count += 1
+            elapsed = time.time() - start_time
+            fps = frame_count / elapsed if elapsed > 0 else 0
+            
+            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(frame, "Press 'q' to quit, 's' to save", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             
             # Display the frame
             cv2.imshow('MoveNet Pose Estimation', frame)
             
-            # Check for quit key
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            # Check for key press
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
                 break
+            elif key == ord('s'):
+                filename = f"pose_screenshot_{int(time.time())}.jpg"
+                cv2.imwrite(filename, frame)
+                print(f"Screenshot saved: {filename}")
                 
     except KeyboardInterrupt:
         print("\nInterrupted by user")
     finally:
         # Cleanup
-        if use_picamzero and cam:
-            cam.close()
-        elif cap:
-            cap.release()
         cv2.destroyAllWindows()
-        print("Done!")
+        print(f"\nDone! Average FPS: {fps:.1f}")
 
 
 if __name__ == "__main__":
