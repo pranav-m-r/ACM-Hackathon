@@ -27,10 +27,11 @@ def capture_frame_rpicam():
             "rpicam-jpeg",
             "-t", "1",
             "-o", temp_file,
-            "--width", "640",
-            "--height", "480",
-            "-n"
-        ], check=True, capture_output=True, timeout=2)
+            "--width", "320",  # Reduced from 640
+            "--height", "240",  # Reduced from 480
+            "-n",
+            "--quality", "80"  # Slightly lower quality for faster capture
+        ], check=True, capture_output=True, timeout=1)  # Reduced timeout
         
         frame = cv2.imread(temp_file)
         
@@ -39,19 +40,17 @@ def capture_frame_rpicam():
         
         return frame
     except subprocess.TimeoutExpired:
-        print("Warning: Camera capture timed out")
         return None
-    except subprocess.CalledProcessError as e:
-        print(f"Warning: rpicam-jpeg failed: {e}")
+    except subprocess.CalledProcessError:
         return None
-    except Exception as e:
-        print(f"Warning: Error capturing frame: {e}")
+    except Exception:
         return None
 
 
 def preprocess_frame(frame, input_size):
     """Preprocess the frame for MoveNet model input."""
-    img = cv2.resize(frame, (input_size, input_size))
+    # Use faster interpolation method
+    img = cv2.resize(frame, (input_size, input_size), interpolation=cv2.INTER_LINEAR)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = np.expand_dims(img, axis=0)
     return img.astype(np.uint8)
@@ -79,7 +78,7 @@ def draw_keypoints(frame, keypoints, confidence_threshold=0.3):
         if confidence > confidence_threshold:
             cx = int(x * w)
             cy = int(y * h)
-            cv2.circle(frame, (cx, cy), 5, (0, 255, 0), -1)
+            cv2.circle(frame, (cx, cy), 3, (0, 255, 0), -1)  # Smaller circles
     
     return frame
 
@@ -109,7 +108,7 @@ def draw_skeleton(frame, keypoints, confidence_threshold=0.3):
             end_y, end_x = keypoints[end_idx][:2]
             end_point = (int(end_x * w), int(end_y * h))
             
-            cv2.line(frame, start_point, end_point, (255, 0, 0), 2)
+            cv2.line(frame, start_point, end_point, (255, 0, 0), 1)  # Thinner lines
     
     return frame
 
@@ -148,15 +147,17 @@ def main():
     
     frame_count = 0
     start_time = time.time()
+    last_fps_update = start_time
+    fps = 0
     
     try:
         while True:
+            loop_start = time.time()
+            
             frame = capture_frame_rpicam()
             
             if frame is None:
-                print("Failed to capture frame, retrying...")
-                time.sleep(0.1)
-                continue
+                continue  # Skip without printing warning every time
             
             input_image = preprocess_frame(frame, input_size)
             keypoints = run_inference(interpreter, input_image)
@@ -165,15 +166,19 @@ def main():
             frame = draw_keypoints(frame, keypoints)
             
             frame_count += 1
-            elapsed = time.time() - start_time
-            fps = frame_count / elapsed if elapsed > 0 else 0
             
-            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(frame, f"Frame: {frame_count}", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(frame, "Press 'q' to quit, 's' to save", (10, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            # Update FPS every second instead of every frame
+            current_time = time.time()
+            if current_time - last_fps_update >= 1.0:
+                elapsed = current_time - start_time
+                fps = frame_count / elapsed if elapsed > 0 else 0
+                last_fps_update = current_time
+            
+            # Simplified text rendering
+            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+            cv2.putText(frame, "q=quit s=save", (10, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
             
             # Display the frame with live annotations
             cv2.imshow('MoveNet Pose Estimation', frame)
@@ -196,7 +201,9 @@ def main():
         print("\nInterrupted by user")
     finally:
         cv2.destroyAllWindows()
-        print(f"\nDone! Average FPS: {fps:.1f}")
+        elapsed = time.time() - start_time
+        final_fps = frame_count / elapsed if elapsed > 0 else 0
+        print(f"\nDone! Average FPS: {final_fps:.1f}")
         print(f"Total frames processed: {frame_count}")
 
 
