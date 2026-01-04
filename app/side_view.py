@@ -28,13 +28,13 @@ FOCUS_MIN_TIME = 5 * 60
 
 # Absolute angle thresholds (ear-shoulder-hip for neck, shoulder-hip-knee for torso)
 # Neck angle ranges (forward = leaning forward, backward = leaning back)
-NECK_FORWARD_MIN = 160.0   # Below this = very forward (bad)
-NECK_FORWARD_MAX = 180.0   # Good posture starts here
-NECK_BACKWARD_MIN = 180.0  # Good posture ends here
-NECK_BACKWARD_MAX = 190.0  # Above this = very backward (bad)
+NECK_FORWARD_MIN = 150.0   # Below this = very forward (bad)
+NECK_FORWARD_MAX = 175.0   # Good posture starts here
+NECK_BACKWARD_MIN = 175.0  # Good posture ends here
+NECK_BACKWARD_MAX = 185.0  # Above this = very backward (bad)
 
 # Torso angle ranges (forward = slouching, backward = leaning back)
-TORSO_FORWARD_MIN = 80.0   # Below this = very slouched (bad)
+TORSO_FORWARD_MIN = 70.0   # Below this = very slouched (bad)
 TORSO_FORWARD_MAX = 90.0   # Good posture starts here
 TORSO_BACKWARD_MIN = 90.0 # Good posture ends here
 TORSO_BACKWARD_MAX = 105.0 # Above this = very leaning back (bad)
