@@ -242,7 +242,7 @@ class PostureMonitor:
                 reasons.append(f"Torso Leaning Back (angle: {torso_angle:.1f}°)")
         
         # Bad posture alert
-        bad = score < 60
+        bad = score < 70
         if bad:
             self.bad_start = self.bad_start or now
         else:
