@@ -221,33 +221,29 @@ class PostureMonitor:
         
         # Calculate subscores based on absolute angle ranges
         # Good posture = angle within range, bad posture = outside range
-        neck_in_range = NECK_FORWARD_MAX <= neck_angle <= NECK_BACKWARD_MIN
-        torso_in_range = TORSO_FORWARD_MAX <= torso_angle <= TORSO_BACKWARD_MIN
+        neck_in_range = NECK_FORWARD_MIN <= neck_angle <= NECK_BACKWARD_MAX
+        torso_in_range = TORSO_FORWARD_MIN <= torso_angle <= TORSO_BACKWARD_MAX
         
         # Score: how close to good range (1.0 = perfect, 0.0 = very bad)
-        if neck_in_range:
-            s_neck = 1.0
-        else:
-            if neck_angle < NECK_FORWARD_MAX:
-                # Forward leaning: use forward tolerance
-                dist = NECK_FORWARD_MAX - neck_angle
-                s_neck = max(0, 1 - dist / NECK_FORWARD_TOLERANCE)
-            else:  # neck_angle > NECK_BACKWARD_MIN
-                # Backward leaning: use backward tolerance
-                dist = neck_angle - NECK_BACKWARD_MIN
-                s_neck = max(0, 1 - dist / NECK_BACKWARD_TOLERANCE)
+        if neck_angle < NECK_FORWARD_MAX:
+            # Forward leaning: use forward tolerance
+            dist = NECK_FORWARD_MAX - neck_angle
+            s_neck = max(0, 1 - dist / NECK_FORWARD_TOLERANCE)
+        else:  # neck_angle > NECK_BACKWARD_MIN
+            # Backward leaning: use backward tolerance
+            dist = neck_angle - NECK_BACKWARD_MIN
+            s_neck = max(0, 1 - dist / NECK_BACKWARD_TOLERANCE)
         
-        if torso_in_range:
-            s_torso = 1.0
-        else:
-            if torso_angle < TORSO_FORWARD_MAX:
-                # Slouching: use forward tolerance
-                dist = TORSO_FORWARD_MAX - torso_angle
-                s_torso = max(0, 1 - dist / TORSO_FORWARD_TOLERANCE)
-            else:  # torso_angle > TORSO_BACKWARD_MIN
-                # Leaning back: use backward tolerance
-                dist = torso_angle - TORSO_BACKWARD_MIN
-                s_torso = max(0, 1 - dist / TORSO_BACKWARD_TOLERANCE)
+        if torso_angle < TORSO_FORWARD_MAX:
+            # Slouching: use forward tolerance
+            dist = TORSO_FORWARD_MAX - torso_angle
+            s_torso = max(0, 1 - dist / TORSO_FORWARD_TOLERANCE)
+        else:  # torso_angle > TORSO_BACKWARD_MIN
+            # Leaning back: use backward tolerance
+            dist = torso_angle - TORSO_BACKWARD_MIN
+            s_torso = max(0, 1 - dist / TORSO_BACKWARD_TOLERANCE)
+        
+        # Overall score
         score = (W_NECK * s_neck + W_TORSO * s_torso) * 100
         classification = "GOOD" if score >= 60 else "BAD"
         
