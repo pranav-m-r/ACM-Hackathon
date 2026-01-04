@@ -23,7 +23,7 @@ FRAMERATE = 30
 MIN_KP_CONF = 0.3
 
 # Time acceleration for testing (1.0 = real-time, 10.0 = 10x faster)
-TIME_RATE = 1.0
+TIME_RATE = 30.0
 
 BAD_POSTURE_ALERT_TIME = 10.0
 SEATED_ALERT_TIME = 45 * 60
