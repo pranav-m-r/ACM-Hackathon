@@ -7,6 +7,8 @@ import math
 import os
 import csv
 from datetime import datetime
+from flask import Flask, jsonify
+import threading
 
 # ============================================================
 # ========================= CONFIG ============================
@@ -307,8 +309,16 @@ class PostureMonitor:
                     # Position stable - maintain or start idle session
                     if self.idle_session_start is None:
                         self.idle_session_start = now
+            else:
+                # First detection - start tracking
+                if self.idle_session_start is None:
+                    self.idle_session_start = now
             
             self.last_ankle_knee_hip_angle = ankle_knee_hip_angle
+        else:
+            # Ankle not detected - cannot track idle state
+            # Don't break session, just don't update (user might be temporarily occluded)
+            pass
         
         # Calculate current idle session duration (accelerated by TIME_RATE)
         if self.idle_session_start is not None:
@@ -334,6 +344,10 @@ class PostureMonitor:
                 # Eye level stable - maintain or start focus session
                 if self.focus_session_start is None:
                     self.focus_session_start = now
+        else:
+            # First detection - start tracking
+            if self.focus_session_start is None:
+                self.focus_session_start = now
         
         self.last_eye_ear_shoulder_angle = eye_ear_shoulder_angle
         
@@ -393,24 +407,75 @@ def log_scores(timestamp, overall_score, neck_score, torso_score):
         ])
 
 def log_focus_session(start_time, end_time, duration):
-    """Append a completed focus session to focus.csv"""
+    """Append a completed focus session to focus.csv
+    duration should already be the real duration (not accelerated)
+    """
     with open(FOCUS_CSV, 'a', newline='') as f:
         writer = csv.writer(f)
+        # Scale duration by TIME_RATE for logging
+        scaled_duration = duration * TIME_RATE
         writer.writerow([
             datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S'),
             datetime.fromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S'),
-            f"{duration:.1f}"  # Duration in seconds
+            f"{scaled_duration:.1f}"  # Duration in seconds (scaled)
         ])
 
 def log_idle_session(start_time, end_time, duration):
-    """Append a completed idle session to idle.csv"""
+    """Append a completed idle session to idle.csv
+    duration should already be the real duration (not accelerated)
+    """
     with open(IDLE_CSV, 'a', newline='') as f:
         writer = csv.writer(f)
+        # Scale duration by TIME_RATE for logging
+        scaled_duration = duration * TIME_RATE
         writer.writerow([
             datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S'),
             datetime.fromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S'),
-            f"{duration:.1f}"  # Duration in seconds
+            f"{scaled_duration:.1f}"  # Duration in seconds (scaled)
         ])
+
+# ============================================================
+# ===================== FLASK API SERVER =====================
+# ============================================================
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Posture Monitor API Running 🚀"
+
+@app.route("/data")
+def get_data():
+    """Return all CSV data as JSON"""
+    data = {
+        "logs": [],
+        "focus": [],
+        "idle": []
+    }
+    
+    # Read logs.csv
+    if os.path.exists(LOGS_CSV):
+        with open(LOGS_CSV, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+            data["logs"] = list(reader)
+    
+    # Read focus.csv
+    if os.path.exists(FOCUS_CSV):
+        with open(FOCUS_CSV, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+            data["focus"] = list(reader)
+    
+    # Read idle.csv
+    if os.path.exists(IDLE_CSV):
+        with open(IDLE_CSV, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+            data["idle"] = list(reader)
+    
+    return jsonify(data)
+
+def run_flask_server():
+    """Run Flask server in background thread"""
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 
 # ============================================================
 # ===================== MOVENET INFERENCE ====================
@@ -447,6 +512,26 @@ def main():
     print("Initializing CSV logging...")
     init_csv_files()
     print(f"Logs directory: {OUTPUT_DIR}")
+    
+    # Start Flask API server in background thread
+    print("Starting Flask API server on port 5000...")
+    flask_thread = threading.Thread(target=run_flask_server, daemon=True)
+    flask_thread.start()
+    
+    # Get local IP address for API access
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        print(f"\n{'='*60}")
+        print(f"  Flask API Server Running")
+        print(f"  Access API at: http://{local_ip}:5000/data")
+        print(f"  Home: http://{local_ip}:5000/")
+        print(f"{'='*60}\n")
+    except:
+        print("  API available at http://localhost:5000/data")
     
     monitor = PostureMonitor()
     
@@ -515,14 +600,16 @@ def main():
             if monitor.last_completed_focus:
                 start, end, duration = monitor.last_completed_focus
                 log_focus_session(start, end, duration)
-                print(f"[LOG] Focus session completed: {duration:.1f}s")
+                scaled_duration = duration * TIME_RATE
+                print(f"[LOG] Focus session completed: {scaled_duration:.1f}s (real: {duration:.1f}s)")
                 monitor.last_completed_focus = None  # Clear after logging
             
             # Log completed idle sessions
             if monitor.last_completed_idle:
                 start, end, duration = monitor.last_completed_idle
                 log_idle_session(start, end, duration)
-                print(f"[LOG] Idle session completed: {duration:.1f}s")
+                scaled_duration = duration * TIME_RATE
+                print(f"[LOG] Idle session completed: {scaled_duration:.1f}s (real: {duration:.1f}s)")
                 monitor.last_completed_idle = None  # Clear after logging
             
             # Calculate FPS
