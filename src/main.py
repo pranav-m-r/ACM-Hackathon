@@ -5,6 +5,8 @@ import subprocess
 import time
 import math
 import os
+import csv
+from datetime import datetime
 
 # ============================================================
 # ========================= CONFIG ============================
@@ -15,6 +17,12 @@ HEIGHT = 480
 FRAMERATE = 30
 
 MIN_KP_CONF = 0.3
+
+# Output directory for CSV logs
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'outputs')
+LOGS_CSV = os.path.join(OUTPUT_DIR, 'logs.csv')
+FOCUS_CSV = os.path.join(OUTPUT_DIR, 'focus.csv')
+IDLE_CSV = os.path.join(OUTPUT_DIR, 'idle.csv')
 
 # Time acceleration for testing (1.0 = real-time, 10.0 = 10x faster)
 TIME_RATE = 30.0
@@ -179,6 +187,10 @@ class PostureMonitor:
         self.last_ankle_knee_hip_angle = None
         self.idle_session_start = None  # Track when current idle session started
         self.detected_side = None
+        
+        # Track completed sessions for CSV logging
+        self.last_completed_focus = None  # (start_time, end_time, duration)
+        self.last_completed_idle = None  # (start_time, end_time, duration)
 
     def update(self, keypoints):
         now = time.time()
@@ -284,6 +296,12 @@ class PostureMonitor:
                 
                 if angle_variation > ANKLE_KNEE_HIP_ANGLE_THRESH:
                     # Position changed significantly - break idle session
+                    if self.idle_session_start is not None:
+                        # Calculate real duration (without TIME_RATE acceleration)
+                        real_duration = now - self.idle_session_start
+                        # Check if session was long enough to log (using accelerated time)
+                        if real_duration * TIME_RATE >= IDLE_ALERT_TIME:
+                            self.last_completed_idle = (self.idle_session_start, now, real_duration)
                     self.idle_session_start = None
                 else:
                     # Position stable - maintain or start idle session
@@ -305,6 +323,12 @@ class PostureMonitor:
             
             if angle_variation > EYE_EAR_SHOULDER_ANGLE_THRESH:
                 # Eye level changed significantly - break focus session
+                if self.focus_session_start is not None:
+                    # Calculate real duration (without TIME_RATE acceleration)
+                    real_duration = now - self.focus_session_start
+                    # Check if session was long enough to log (using accelerated time)
+                    if real_duration * TIME_RATE >= FOCUS_MIN_TIME:
+                        self.last_completed_focus = (self.focus_session_start, now, real_duration)
                 self.focus_session_start = None
             else:
                 # Eye level stable - maintain or start focus session
@@ -330,6 +354,63 @@ class PostureMonitor:
         }
         
         return data, bad_alert, idle_duration >= IDLE_ALERT_TIME, focus_duration >= FOCUS_MIN_TIME, side_kps
+
+# ============================================================
+# =================== CSV LOGGING FUNCTIONS ==================
+# ============================================================
+
+def init_csv_files():
+    """Initialize CSV files with headers if they don't exist"""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Initialize logs.csv
+    if not os.path.exists(LOGS_CSV):
+        with open(LOGS_CSV, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['timestamp', 'overall_score', 'neck_score', 'torso_score'])
+    
+    # Initialize focus.csv
+    if not os.path.exists(FOCUS_CSV):
+        with open(FOCUS_CSV, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['start_time', 'end_time', 'time_period'])
+    
+    # Initialize idle.csv
+    if not os.path.exists(IDLE_CSV):
+        with open(IDLE_CSV, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['start_time', 'end_time', 'time_period'])
+
+def log_scores(timestamp, overall_score, neck_score, torso_score):
+    """Append a score entry to logs.csv"""
+    with open(LOGS_CSV, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+            f"{overall_score:.2f}",
+            f"{neck_score:.2f}",
+            f"{torso_score:.2f}"
+        ])
+
+def log_focus_session(start_time, end_time, duration):
+    """Append a completed focus session to focus.csv"""
+    with open(FOCUS_CSV, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S'),
+            datetime.fromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S'),
+            f"{duration:.1f}"  # Duration in seconds
+        ])
+
+def log_idle_session(start_time, end_time, duration):
+    """Append a completed idle session to idle.csv"""
+    with open(IDLE_CSV, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S'),
+            datetime.fromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S'),
+            f"{duration:.1f}"  # Duration in seconds
+        ])
 
 # ============================================================
 # ===================== MOVENET INFERENCE ====================
@@ -361,6 +442,11 @@ def main():
     interpreter = load_model("model.tflite")
     input_size = interpreter.get_input_details()[0]["shape"][1]
     print(f"Model input size: {input_size}x{input_size}")
+    
+    # Initialize CSV files
+    print("Initializing CSV logging...")
+    init_csv_files()
+    print(f"Logs directory: {OUTPUT_DIR}")
     
     monitor = PostureMonitor()
     
@@ -412,6 +498,30 @@ def main():
             # Update monitor
             result = monitor.update(keypoints)
             data, bad_alert, idle_alert, focused, side_kps = result
+            
+            # ==== CSV LOGGING ====
+            # Log scores to logs.csv (if valid data)
+            if data:
+                log_scores(
+                    current_time,
+                    data['score'],
+                    data['subscores']['Neck'],
+                    data['subscores']['Torso']
+                )
+            
+            # Log completed focus sessions
+            if monitor.last_completed_focus:
+                start, end, duration = monitor.last_completed_focus
+                log_focus_session(start, end, duration)
+                print(f"[LOG] Focus session completed: {duration:.1f}s")
+                monitor.last_completed_focus = None  # Clear after logging
+            
+            # Log completed idle sessions
+            if monitor.last_completed_idle:
+                start, end, duration = monitor.last_completed_idle
+                log_idle_session(start, end, duration)
+                print(f"[LOG] Idle session completed: {duration:.1f}s")
+                monitor.last_completed_idle = None  # Clear after logging
             
             # Calculate FPS
             frame_count += 1
