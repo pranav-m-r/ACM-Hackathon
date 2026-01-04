@@ -26,26 +26,18 @@ FOCUS_MIN_TIME = 5 * 60
 # Angle variation threshold for idle detection (ankle-knee-hip angle)
 ANKLE_KNEE_HIP_ANGLE_THRESH = 5.0  # degrees change to count as position change
 
-# Absolute angle thresholds (ear-shoulder-hip for neck, shoulder-hip-knee for torso)
-# Neck angle ranges (forward = leaning forward, backward = leaning back)
-NECK_FORWARD_MIN = 150.0   # Below this = very forward (bad)
-NECK_FORWARD_MAX = 175.0   # Good posture starts here
-NECK_BACKWARD_MIN = 175.0  # Good posture ends here
-NECK_BACKWARD_MAX = 185.0  # Above this = very backward (bad)
+# Absolute angle bounds (180° = perfect posture, min/max = score of 0)
+# Neck angle bounds (ear-shoulder-hip)
+NECK_MIN = 130.0   # Below this = score 0
+NECK_MAX = 200.0   # Above this = score 0
+NECK_OPTIMAL = 180.0  # Perfect posture
 
-# Torso angle ranges (forward = slouching, backward = leaning back)
-TORSO_FORWARD_MIN = 70.0   # Below this = very slouched (bad)
-TORSO_FORWARD_MAX = 90.0   # Good posture starts here
-TORSO_BACKWARD_MIN = 90.0 # Good posture ends here
-TORSO_BACKWARD_MAX = 105.0 # Above this = very leaning back (bad)
+# Torso angle bounds (shoulder-hip-knee)
+TORSO_MIN = 45.0   # Below this = score 0
+TORSO_MAX = 135.0  # Above this = score 0
+TORSO_OPTIMAL = 90.0  # Perfect posture
 
 EYE_EAR_SHOULDER_ANGLE_THRESH = 5.0  # degrees change to count as head movement
-
-# Calculate tolerances from band ranges
-NECK_FORWARD_TOLERANCE = (NECK_FORWARD_MAX - NECK_FORWARD_MIN)
-NECK_BACKWARD_TOLERANCE = (NECK_BACKWARD_MAX - NECK_BACKWARD_MIN)
-TORSO_FORWARD_TOLERANCE = (TORSO_FORWARD_MAX - TORSO_FORWARD_MIN)
-TORSO_BACKWARD_TOLERANCE = (TORSO_BACKWARD_MAX - TORSO_BACKWARD_MIN)
 
 # weights for scoring
 W_NECK = 0.5
@@ -219,46 +211,56 @@ class PostureMonitor:
         # 3) Focus: eye-ear-shoulder (angle at ear)
         eye_ear_shoulder_angle = calculate_angle(eye, ear, shoulder)
         
-        # Calculate subscores based on absolute angle ranges
-        # Good posture = angle within range, bad posture = outside range
-        neck_in_range = NECK_FORWARD_MIN <= neck_angle <= NECK_BACKWARD_MAX
-        torso_in_range = TORSO_FORWARD_MIN <= torso_angle <= TORSO_BACKWARD_MAX
+        # Linear scoring based on deviation from optimal angle (180° for neck, 90° for torso)
+        # Score = 1.0 at optimal, 0.0 at min/max bounds
         
-        # Score: how close to good range (1.0 = perfect, 0.0 = very bad)
-        if neck_angle < NECK_FORWARD_MAX:
-            # Forward leaning: use forward tolerance
-            dist = NECK_FORWARD_MAX - neck_angle
-            s_neck = max(0, 1 - dist / NECK_FORWARD_TOLERANCE)
-        else:  # neck_angle > NECK_BACKWARD_MIN
-            # Backward leaning: use backward tolerance
-            dist = neck_angle - NECK_BACKWARD_MIN
-            s_neck = max(0, 1 - dist / NECK_BACKWARD_TOLERANCE)
+        # Neck score: linear interpolation from min/optimal/max
+        if neck_angle <= NECK_MIN or neck_angle >= NECK_MAX:
+            s_neck = 0.0
+        elif neck_angle < NECK_OPTIMAL:
+            # Between min and optimal: linear scale from 0 to 1
+            s_neck = (neck_angle - NECK_MIN) / (NECK_OPTIMAL - NECK_MIN)
+        else:
+            # Between optimal and max: linear scale from 1 to 0
+            s_neck = 1.0 - (neck_angle - NECK_OPTIMAL) / (NECK_MAX - NECK_OPTIMAL)
         
-        if torso_angle < TORSO_FORWARD_MAX:
-            # Slouching: use forward tolerance
-            dist = TORSO_FORWARD_MAX - torso_angle
-            s_torso = max(0, 1 - dist / TORSO_FORWARD_TOLERANCE)
-        else:  # torso_angle > TORSO_BACKWARD_MIN
-            # Leaning back: use backward tolerance
-            dist = torso_angle - TORSO_BACKWARD_MIN
-            s_torso = max(0, 1 - dist / TORSO_BACKWARD_TOLERANCE)
+        # Torso score: linear interpolation from min/optimal/max
+        if torso_angle <= TORSO_MIN or torso_angle >= TORSO_MAX:
+            s_torso = 0.0
+        elif torso_angle < TORSO_OPTIMAL:
+            # Between min and optimal: linear scale from 0 to 1
+            s_torso = (torso_angle - TORSO_MIN) / (TORSO_OPTIMAL - TORSO_MIN)
+        else:
+            # Between optimal and max: linear scale from 1 to 0
+            s_torso = 1.0 - (torso_angle - TORSO_OPTIMAL) / (TORSO_MAX - TORSO_OPTIMAL)
+        
+        # Clamp scores to [0, 1]
+        s_neck = max(0.0, min(1.0, s_neck))
+        s_torso = max(0.0, min(1.0, s_torso))
         
         # Overall score
         score = (W_NECK * s_neck + W_TORSO * s_torso) * 100
         classification = "GOOD" if score >= 60 else "BAD"
         
-        # Determine reasons for bad posture
+        # Determine reasons for bad posture (only show if outside bounds)
         reasons = []
-        if not neck_in_range:
-            if neck_angle < NECK_FORWARD_MAX:
-                reasons.append(f"Neck Forward (angle: {neck_angle:.1f}°)")
-            else:  # neck_angle > NECK_BACKWARD_MIN
-                reasons.append(f"Neck Back (angle: {neck_angle:.1f}°)")
-        if not torso_in_range:
-            if torso_angle < TORSO_FORWARD_MAX:
-                reasons.append(f"Torso Slouched (angle: {torso_angle:.1f}°)")
-            else:  # torso_angle > TORSO_BACKWARD_MIN
-                reasons.append(f"Torso Leaning Back (angle: {torso_angle:.1f}°)")
+        if neck_angle < NECK_MIN:
+            reasons.append(f"Neck Too Forward (angle: {neck_angle:.1f}°)")
+        elif neck_angle > NECK_MAX:
+            reasons.append(f"Neck Too Backward (angle: {neck_angle:.1f}°)")
+        elif neck_angle < NECK_OPTIMAL - 10:  # Significant deviation forward
+            reasons.append(f"Neck Forward (angle: {neck_angle:.1f}°)")
+        elif neck_angle > NECK_OPTIMAL + 10:  # Significant deviation backward
+            reasons.append(f"Neck Backward (angle: {neck_angle:.1f}°)")
+        
+        if torso_angle < TORSO_MIN:
+            reasons.append(f"Torso Too Slouched (angle: {torso_angle:.1f}°)")
+        elif torso_angle > TORSO_MAX:
+            reasons.append(f"Torso Too Far Back (angle: {torso_angle:.1f}°)")
+        elif torso_angle < TORSO_OPTIMAL - 10:  # Significant deviation forward
+            reasons.append(f"Torso Slouched (angle: {torso_angle:.1f}°)")
+        elif torso_angle > TORSO_OPTIMAL + 10:  # Significant deviation backward
+            reasons.append(f"Torso Leaning Back (angle: {torso_angle:.1f}°)")
         
         # Bad posture alert
         bad = score < 60
@@ -380,9 +382,9 @@ def main():
     frame_size = WIDTH * HEIGHT * 3 // 2  # YUV420
     
     print("\nSide Camera Posture Monitor started")
-    print("Using absolute angle thresholds (no calibration needed)")
-    print(f"Good neck angle range: {NECK_FORWARD_MIN}-{NECK_BACKWARD_MAX}° (tolerance: -{NECK_FORWARD_TOLERANCE}/+{NECK_BACKWARD_TOLERANCE})")
-    print(f"Good torso angle range: {TORSO_FORWARD_MIN}-{TORSO_BACKWARD_MAX}° (tolerance: ±{TORSO_FORWARD_TOLERANCE})")
+    print("Linear scoring based on deviation from optimal angles")
+    print(f"Neck: optimal={NECK_OPTIMAL}°, range={NECK_MIN}-{NECK_MAX}°")
+    print(f"Torso: optimal={TORSO_OPTIMAL}°, range={TORSO_MIN}-{TORSO_MAX}°")
     print("Press Ctrl+C to stop\n")
     
     frame_count = 0
@@ -485,8 +487,8 @@ def main():
                 draw_text(frame, f"Status: {data['classification']}", 10, 60, color, 0.7)
                 
                 # Show angles
-                draw_text(frame, f"Neck: {data['neck_angle']:.1f}deg (range: {NECK_FORWARD_MIN}-{NECK_BACKWARD_MAX})", 10, 95, (255, 255, 255), 0.5)
-                draw_text(frame, f"Torso: {data['torso_angle']:.1f}deg (range: {TORSO_FORWARD_MIN}-{TORSO_BACKWARD_MAX})", 10, 115, (255, 255, 255), 0.5)
+                draw_text(frame, f"Neck: {data['neck_angle']:.1f}deg (optimal: {NECK_OPTIMAL}, range: {NECK_MIN}-{NECK_MAX})", 10, 95, (255, 255, 255), 0.5)
+                draw_text(frame, f"Torso: {data['torso_angle']:.1f}deg (optimal: {TORSO_OPTIMAL}, range: {TORSO_MIN}-{TORSO_MAX})", 10, 115, (255, 255, 255), 0.5)
                 draw_text(frame, f"Focus: {data['eye_ear_shoulder_angle']:.1f}deg", 10, 135, (255, 255, 255), 0.5)
                 
                 # Show subscores
