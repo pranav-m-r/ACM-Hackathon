@@ -26,12 +26,26 @@ BAD_POSTURE_ALERT_TIME = 10.0
 SEATED_ALERT_TIME = 45 * 60
 FOCUS_MIN_TIME = 5 * 60
 
-# Absolute angle thresholds (good posture range)
-NECK_ANGLE_GOOD_MIN = 160.0  # degrees (ear-shoulder-hip angle)
-NECK_ANGLE_GOOD_MAX = 180.0  # degrees
-TORSO_ANGLE_GOOD_MIN = 85.0  # degrees (shoulder-hip-knee angle)
-TORSO_ANGLE_GOOD_MAX = 110.0  # degrees
+# Absolute angle thresholds (ear-shoulder-hip for neck, shoulder-hip-knee for torso)
+# Neck angle ranges (forward = leaning forward, backward = leaning back)
+NECK_FORWARD_MIN = 140.0   # Below this = very forward (bad)
+NECK_FORWARD_MAX = 160.0   # Good posture starts here
+NECK_BACKWARD_MIN = 180.0  # Good posture ends here
+NECK_BACKWARD_MAX = 220.0  # Above this = very backward (bad)
+
+# Torso angle ranges (forward = slouching, backward = leaning back)
+TORSO_FORWARD_MIN = 55.0   # Below this = very slouched (bad)
+TORSO_FORWARD_MAX = 85.0   # Good posture starts here
+TORSO_BACKWARD_MIN = 110.0 # Good posture ends here
+TORSO_BACKWARD_MAX = 140.0 # Above this = very leaning back (bad)
+
 EYE_EAR_SHOULDER_ANGLE_THRESH = 3.0  # degrees change to count as head movement
+
+# Calculate tolerances from band ranges
+NECK_FORWARD_TOLERANCE = (NECK_FORWARD_MAX - NECK_FORWARD_MIN) / 2   # 10 degrees
+NECK_BACKWARD_TOLERANCE = (NECK_BACKWARD_MAX - NECK_BACKWARD_MIN) / 2  # 20 degrees
+TORSO_FORWARD_TOLERANCE = (TORSO_FORWARD_MAX - TORSO_FORWARD_MIN) / 2  # 15 degrees
+TORSO_BACKWARD_TOLERANCE = (TORSO_BACKWARD_MAX - TORSO_BACKWARD_MIN) / 2  # 15 degrees
 
 # weights for scoring
 W_NECK = 0.5
@@ -96,26 +110,31 @@ def draw_skeleton(frame, keypoints, connections=SKELETON_CONNECTIONS, conf_thres
 
 def calculate_angle(p1, p2, p3):
     """
-    Calculate angle at p2 formed by points p1-p2-p3
-    Returns angle in degrees (0-180)
+    Calculate signed angle at p2 formed by points p1-p2-p3
+    Returns angle in degrees (0-360)
+    
+    For side view (ear-shoulder-hip):
+    - Small angles (0-90): Forward lean (ear in front)
+    - ~180: Neutral/straight posture
+    - Large angles (270-360): Backward lean (ear behind)
     """
     # Vectors from p2 to p1 and p2 to p3
     v1 = (p1[0] - p2[0], p1[1] - p2[1])
     v2 = (p3[0] - p2[0], p3[1] - p2[1])
     
-    # Dot product and magnitudes
-    dot = v1[0] * v2[0] + v1[1] * v2[1]
-    mag1 = math.sqrt(v1[0]**2 + v1[1]**2)
-    mag2 = math.sqrt(v2[0]**2 + v2[1]**2)
+    # Calculate angle using atan2 for full 360-degree range
+    angle1 = math.atan2(v1[1], v1[0])
+    angle2 = math.atan2(v2[1], v2[0])
     
-    if mag1 == 0 or mag2 == 0:
-        return 0.0
+    # Calculate the angle difference
+    angle = angle2 - angle1
     
-    # Angle in radians then degrees
-    cos_angle = dot / (mag1 * mag2)
-    cos_angle = max(-1.0, min(1.0, cos_angle))  # Clamp to [-1, 1]
-    angle = math.acos(cos_angle)
-    return math.degrees(angle)
+    # Normalize to 0-360 range
+    angle_deg = math.degrees(angle)
+    if angle_deg < 0:
+        angle_deg += 360
+    
+    return angle_deg
 
 def get_pixel_coords(kp, w, h):
     """Convert normalized coords to pixel coords"""
@@ -200,43 +219,45 @@ class PostureMonitor:
         
         # Calculate subscores based on absolute angle ranges
         # Good posture = angle within range, bad posture = outside range
-        neck_in_range = NECK_ANGLE_GOOD_MIN <= neck_angle <= NECK_ANGLE_GOOD_MAX
-        torso_in_range = TORSO_ANGLE_GOOD_MIN <= torso_angle <= TORSO_ANGLE_GOOD_MAX
+        neck_in_range = NECK_FORWARD_MAX <= neck_angle <= NECK_BACKWARD_MIN
+        torso_in_range = TORSO_FORWARD_MAX <= torso_angle <= TORSO_BACKWARD_MIN
         
         # Score: how close to good range (1.0 = perfect, 0.0 = very bad)
         if neck_in_range:
             s_neck = 1.0
         else:
-            # Asymmetric tolerance: 20° below min, 40° above max
-            if neck_angle < NECK_ANGLE_GOOD_MIN:
-                dist = NECK_ANGLE_GOOD_MIN - neck_angle
-                s_neck = max(0, 1 - dist / 10.0)  # 10 degree tolerance below
-            else:  # neck_angle > NECK_ANGLE_GOOD_MAX
-                dist = neck_angle - NECK_ANGLE_GOOD_MAX
-                s_neck = max(0, 1 - dist / 40.0)  # 40 degree tolerance above
+            if neck_angle < NECK_FORWARD_MAX:
+                # Forward leaning: use forward tolerance
+                dist = NECK_FORWARD_MAX - neck_angle
+                s_neck = max(0, 1 - dist / NECK_FORWARD_TOLERANCE)
+            else:  # neck_angle > NECK_BACKWARD_MIN
+                # Backward leaning: use backward tolerance
+                dist = neck_angle - NECK_BACKWARD_MIN
+                s_neck = max(0, 1 - dist / NECK_BACKWARD_TOLERANCE)
         
         if torso_in_range:
             s_torso = 1.0
         else:
-            # Symmetric ±30° tolerance
-            if torso_angle < TORSO_ANGLE_GOOD_MIN:
-                dist = TORSO_ANGLE_GOOD_MIN - torso_angle
-                s_torso = max(0, 1 - dist / 30.0)  # 30 degree tolerance below
-            else:  # torso_angle > TORSO_ANGLE_GOOD_MAX
-                dist = torso_angle - TORSO_ANGLE_GOOD_MAX
-                s_torso = max(0, 1 - dist / 30.0)  # 30 degree tolerance above
+            if torso_angle < TORSO_FORWARD_MAX:
+                # Slouching: use forward tolerance
+                dist = TORSO_FORWARD_MAX - torso_angle
+                s_torso = max(0, 1 - dist / TORSO_FORWARD_TOLERANCE)
+            else:  # torso_angle > TORSO_BACKWARD_MIN
+                # Leaning back: use backward tolerance
+                dist = torso_angle - TORSO_BACKWARD_MIN
+                s_torso = max(0, 1 - dist / TORSO_BACKWARD_TOLERANCE)
         score = (W_NECK * s_neck + W_TORSO * s_torso) * 100
         classification = "GOOD" if score >= 70 else "BAD"
         
         # Determine reasons for bad posture
         reasons = []
         if not neck_in_range:
-            if neck_angle < NECK_ANGLE_GOOD_MIN:
+            if neck_angle < NECK_FORWARD_MAX:
                 reasons.append(f"Neck Forward (angle: {neck_angle:.1f}°)")
             else:
                 reasons.append(f"Neck Back (angle: {neck_angle:.1f}°)")
         if not torso_in_range:
-            if torso_angle < TORSO_ANGLE_GOOD_MIN:
+            if torso_angle < TORSO_FORWARD_MAX:
                 reasons.append(f"Torso Slouched (angle: {torso_angle:.1f}°)")
             else:
                 reasons.append(f"Torso Leaning Back (angle: {torso_angle:.1f}°)")
@@ -323,8 +344,8 @@ def main():
     
     print("\nSide Camera Posture Monitor started")
     print("Using absolute angle thresholds (no calibration needed)")
-    print(f"Good neck angle range: {NECK_ANGLE_GOOD_MIN}-{NECK_ANGLE_GOOD_MAX}°")
-    print(f"Good torso angle range: {TORSO_ANGLE_GOOD_MIN}-{TORSO_ANGLE_GOOD_MAX}°")
+    print(f"Good neck angle range: {NECK_FORWARD_MAX}-{NECK_BACKWARD_MIN}° (tolerance: -{NECK_FORWARD_TOLERANCE}/+{NECK_BACKWARD_TOLERANCE})")
+    print(f"Good torso angle range: {TORSO_FORWARD_MAX}-{TORSO_BACKWARD_MIN}° (tolerance: ±{TORSO_FORWARD_TOLERANCE})")
     print("Press Ctrl+C to stop\n")
     
     frame_count = 0
@@ -426,8 +447,8 @@ def main():
                 draw_text(frame, f"Status: {data['classification']}", 10, 60, color, 0.7)
                 
                 # Show angles
-                draw_text(frame, f"Neck: {data['neck_angle']:.1f}deg (range: {NECK_ANGLE_GOOD_MIN}-{NECK_ANGLE_GOOD_MAX})", 10, 95, (255, 255, 255), 0.5)
-                draw_text(frame, f"Torso: {data['torso_angle']:.1f}deg (range: {TORSO_ANGLE_GOOD_MIN}-{TORSO_ANGLE_GOOD_MAX})", 10, 115, (255, 255, 255), 0.5)
+                draw_text(frame, f"Neck: {data['neck_angle']:.1f}deg (range: {NECK_FORWARD_MAX}-{NECK_BACKWARD_MIN})", 10, 95, (255, 255, 255), 0.5)
+                draw_text(frame, f"Torso: {data['torso_angle']:.1f}deg (range: {TORSO_FORWARD_MAX}-{TORSO_BACKWARD_MIN})", 10, 115, (255, 255, 255), 0.5)
                 draw_text(frame, f"Focus: {data['eye_ear_shoulder_angle']:.1f}deg", 10, 135, (255, 255, 255), 0.5)
                 
                 # Show subscores
