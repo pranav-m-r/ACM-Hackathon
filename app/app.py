@@ -9,7 +9,7 @@ Live Desk Posture + Focus Monitor with 3D pseudo-coordinates
 Works for oblique camera angles (~45°)
 Displays skeleton and annotations
 """
-os.environ['DISPLAY']=':0'
+
 
 import cv2
 import numpy as np

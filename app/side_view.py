@@ -1,23 +1,4 @@
 """
-Single Side-Camera Desk Posture + Focus Monitor
-Features:
-- Neck slouch (forward head)
-- Torso slouch
-- Focus based on head stillness
-Displays skeleton, torso lines, score, subscores, classification, and alerts
-"""
-#os.environ['DISPLAY']=':0'
-
-"""
-Single Side-Camera Desk Posture + Focus Monitor with Live Bars
-Features:
-- Neck slouch (forward head)
-- Torso slouch
-- Focus based on head stillness
-- Live visual bars for Neck, Torso, and Total Score
-"""
-
-"""
 Live Desk Posture + Focus Monitor (Side Camera)
 Simple angular displacement from calibrated straight posture
 """
@@ -51,7 +32,8 @@ HEAD_MOVEMENT_THRESH = 3.0
 # weights for scoring
 W_NECK = 0.5
 W_TORSO = 0.5
-os.environ['DISPLAY']=':0'
+
+os.environ['DISPLAY'] = ':0'
 
 KEYPOINT_NAMES = [
     'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear',
