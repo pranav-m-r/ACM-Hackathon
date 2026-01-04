@@ -29,23 +29,23 @@ FOCUS_MIN_TIME = 5 * 60
 # Absolute angle thresholds (ear-shoulder-hip for neck, shoulder-hip-knee for torso)
 # Neck angle ranges (forward = leaning forward, backward = leaning back)
 NECK_FORWARD_MIN = 140.0   # Below this = very forward (bad)
-NECK_FORWARD_MAX = 160.0   # Good posture starts here
+NECK_FORWARD_MAX = 180.0   # Good posture starts here
 NECK_BACKWARD_MIN = 180.0  # Good posture ends here
-NECK_BACKWARD_MAX = 220.0  # Above this = very backward (bad)
+NECK_BACKWARD_MAX = 200.0  # Above this = very backward (bad)
 
 # Torso angle ranges (forward = slouching, backward = leaning back)
-TORSO_FORWARD_MIN = 55.0   # Below this = very slouched (bad)
-TORSO_FORWARD_MAX = 85.0   # Good posture starts here
-TORSO_BACKWARD_MIN = 110.0 # Good posture ends here
-TORSO_BACKWARD_MAX = 140.0 # Above this = very leaning back (bad)
+TORSO_FORWARD_MIN = 75.0   # Below this = very slouched (bad)
+TORSO_FORWARD_MAX = 100.0   # Good posture starts here
+TORSO_BACKWARD_MIN = 100.0 # Good posture ends here
+TORSO_BACKWARD_MAX = 125.0 # Above this = very leaning back (bad)
 
 EYE_EAR_SHOULDER_ANGLE_THRESH = 3.0  # degrees change to count as head movement
 
 # Calculate tolerances from band ranges
-NECK_FORWARD_TOLERANCE = (NECK_FORWARD_MAX - NECK_FORWARD_MIN) / 2   # 10 degrees
-NECK_BACKWARD_TOLERANCE = (NECK_BACKWARD_MAX - NECK_BACKWARD_MIN) / 2  # 20 degrees
-TORSO_FORWARD_TOLERANCE = (TORSO_FORWARD_MAX - TORSO_FORWARD_MIN) / 2  # 15 degrees
-TORSO_BACKWARD_TOLERANCE = (TORSO_BACKWARD_MAX - TORSO_BACKWARD_MIN) / 2  # 15 degrees
+NECK_FORWARD_TOLERANCE = (NECK_FORWARD_MAX - NECK_FORWARD_MIN) / 2
+NECK_BACKWARD_TOLERANCE = (NECK_BACKWARD_MAX - NECK_BACKWARD_MIN) / 2
+TORSO_FORWARD_TOLERANCE = (TORSO_FORWARD_MAX - TORSO_FORWARD_MIN) / 2
+TORSO_BACKWARD_TOLERANCE = (TORSO_BACKWARD_MAX - TORSO_BACKWARD_MIN) / 2
 
 # weights for scoring
 W_NECK = 0.5
