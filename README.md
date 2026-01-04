@@ -952,11 +952,11 @@ This project is open source and available under the MIT License.
 
 ## 👥 Team Members
 
-1. *[Name TBD]*
-2. *[Name TBD]*
-3. *[Name TBD]*
-4. *[Name TBD]*
-5. *[Name TBD]*
+1. Pranav M R
+2. Shreyas Sankaran
+3. Ashwin Prasanth Hariharan
+4. Veningston K
+5. Ronalda M
 
 ---
 
