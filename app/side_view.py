@@ -210,7 +210,7 @@ class PostureMonitor:
             # Asymmetric tolerance: 20° below min, 40° above max
             if neck_angle < NECK_ANGLE_GOOD_MIN:
                 dist = NECK_ANGLE_GOOD_MIN - neck_angle
-                s_neck = max(0, 1 - dist / 20.0)  # 20 degree tolerance below
+                s_neck = max(0, 1 - dist / 10.0)  # 10 degree tolerance below
             else:  # neck_angle > NECK_ANGLE_GOOD_MAX
                 dist = neck_angle - NECK_ANGLE_GOOD_MAX
                 s_neck = max(0, 1 - dist / 40.0)  # 40 degree tolerance above
