@@ -29,8 +29,8 @@ FOCUS_MIN_TIME = 5 * 60
 # Absolute angle thresholds (good posture range)
 NECK_ANGLE_GOOD_MIN = 160.0  # degrees (ear-shoulder-hip angle)
 NECK_ANGLE_GOOD_MAX = 180.0  # degrees
-TORSO_ANGLE_GOOD_MIN = 165.0  # degrees (shoulder-hip-knee angle)
-TORSO_ANGLE_GOOD_MAX = 180.0  # degrees
+TORSO_ANGLE_GOOD_MIN = 85.0  # degrees (shoulder-hip-knee angle)
+TORSO_ANGLE_GOOD_MAX = 110.0  # degrees
 EYE_EAR_SHOULDER_ANGLE_THRESH = 3.0  # degrees change to count as head movement
 
 # weights for scoring
